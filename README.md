@@ -1,4 +1,4 @@
-# 🎧 Arquitetando o Spotify — Case Study de System Design
+# 🎧 Arquitetando o Spotify — Estudo
 
 ![Status](https://img.shields.io/badge/status-case%20study-blue?style=flat)
 ![Tema](https://img.shields.io/badge/tema-System%20Design-orange?style=flat)
