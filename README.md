@@ -1,71 +1,95 @@
-# 🎧 Arquitetando o Spotify — Estudo
+# Arquitetando o Spotify — case de system design
 
-![Status](https://img.shields.io/badge/status-case%20study-blue?style=flat)
-![Tema](https://img.shields.io/badge/tema-System%20Design-orange?style=flat)
-![Nível](https://img.shields.io/badge/nível-arquitetura%20de%20sistemas%20distribuídos-informational?style=flat)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-FF4438?style=flat&logo=redis&logoColor=white)
+![Apache Kafka](https://img.shields.io/badge/Kafka-231F20?style=flat&logo=apachekafka&logoColor=white)
+![Elasticsearch](https://img.shields.io/badge/Elasticsearch-005571?style=flat&logo=elasticsearch&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=flat&logo=kubernetes&logoColor=white)
 
-Estudo de caso de **arquitetura de sistemas distribuídos**: como projetar, do zero, uma plataforma de streaming de música na escala do Spotify. O objetivo não é reimplementar o produto, e sim exercitar o raciocínio de **system design** — requisitos, estimativas de capacidade, modelagem de dados, trade-offs de escalabilidade e decisões de arquitetura — documentando o processo de ponta a ponta.
+Estudo de arquitetura em um único Markdown. O texto projeta, no papel, uma plataforma de streaming na escala de um Spotify: requisito, conta de capacidade, modelo, API e trade-off. Não há serviço para subir aqui. Os números da seção 4 são ordem de grandeza para justificar decisão, não dado real do Spotify.
 
-## 📋 Sumário
+Uma fatia pequena disso está em código no repositório [arch-code](https://github.com/gabrielteramae/arch-code): URL assinada com HMAC-SHA256, HTTP Range e um endpoint de evento de reprodução que só loga.
 
-- [1. Contexto e objetivo](#1-contexto-e-objetivo)
-- [2. Requisitos funcionais](#2-requisitos-funcionais)
-- [3. Requisitos não-funcionais](#3-requisitos-não-funcionais)
-- [4. Estimativas de capacidade](#4-estimativas-de-capacidade)
-- [5. Arquitetura de alto nível](#5-arquitetura-de-alto-nível)
-- [6. Modelagem de dados](#6-modelagem-de-dados)
-- [7. Design de API](#7-design-de-api)
-- [8. Streaming de áudio e CDN](#8-streaming-de-áudio-e-cdn)
-- [9. Sistema de recomendação](#9-sistema-de-recomendação)
-- [10. Escalabilidade e trade-offs](#10-escalabilidade-e-trade-offs)
-- [11. Stack sugerida](#11-stack-sugerida)
+## Stack
 
----
+Nada disso está instalado neste repo. É a stack sugerida na seção 11:
+
+- Serviços em Python (FastAPI) ou Java (Spring Boot), conforme o domínio
+- Kafka ou AWS Kinesis como event bus
+- PostgreSQL, DynamoDB ou Cassandra, Elasticsearch
+- Redis
+- Áudio em S3 (ou equivalente) e CloudFront
+- Kubernetes ou ECS, Terraform
+- Prometheus, Grafana, log centralizado, OpenTelemetry
+
+## Estrutura
+
+Só este `README.md` e um `.gitignore`. As notas são as seções abaixo:
+
+1. Contexto e objetivo
+2. Requisitos funcionais
+3. Requisitos não funcionais
+4. Estimativas de capacidade
+5. Arquitetura de alto nível
+6. Modelagem de dados
+7. Design de API
+8. Streaming de áudio e CDN
+9. Sistema de recomendação
+10. Escalabilidade e trade-offs
+11. Stack sugerida
+
+## Como ler
+
+```bash
+git clone https://github.com/gabrielteramae/arquitetando-spotify.git
+cd arquitetando-spotify
+```
+
+Leia da seção 1 à 11. Os diagramas são Mermaid. Não há API, player nem banco neste repositório.
 
 ## 1. Contexto e objetivo
 
-Projetar a arquitetura de um serviço de streaming de música capaz de suportar:
-- Catálogo de dezenas de milhões de faixas
-- Centenas de milhões de usuários ativos
-- Reprodução de áudio com baixa latência em qualquer lugar do mundo
-- Playlists colaborativas, recomendações personalizadas e busca em tempo real
+Projetar um serviço de streaming capaz de:
+
+- catálogo de dezenas de milhões de faixas
+- centenas de milhões de usuários ativos
+- reprodução com baixa latência
+- playlist colaborativa, recomendação e busca
 
 ## 2. Requisitos funcionais
 
 | # | Requisito |
 |---|---|
-| RF01 | Usuário pode buscar músicas, artistas, álbuns e playlists |
-| RF02 | Usuário pode reproduzir uma faixa em streaming (sem download completo) |
-| RF03 | Usuário pode criar, editar e compartilhar playlists |
-| RF04 | Sistema recomenda faixas/playlists com base no histórico de audição |
-| RF05 | Usuário pode curtir/salvar músicas e seguir artistas |
-| RF06 | Sistema exibe letras sincronizadas (opcional) |
-| RF07 | Suporte a reprodução offline (cache local no app) |
+| RF01 | Buscar música, artista, álbum e playlist |
+| RF02 | Reproduzir em streaming, sem baixar a faixa inteira |
+| RF03 | Criar, editar e compartilhar playlist |
+| RF04 | Recomendar faixa e playlist a partir do histórico |
+| RF05 | Curtir ou salvar música e seguir artista |
+| RF06 | Letra sincronizada (opcional) |
+| RF07 | Reprodução offline (cache no app) |
 
-## 3. Requisitos não-funcionais
+## 3. Requisitos não funcionais
 
-| # | Requisito | Meta |
+| # | Requisito | Meta no texto |
 |---|---|---|
-| RNF01 | Disponibilidade | 99.95% (~4h de downtime/ano) |
-| RNF02 | Latência de início de reprodução | < 200ms (p95) |
-| RNF03 | Consistência | Eventual para playlists/recomendações; forte para autenticação e pagamento |
-| RNF04 | Escalabilidade | Suportar picos regionais (ex: lançamento de álbum global) |
-| RNF05 | Durabilidade do catálogo de áudio | 99.999999999% (11 noves, padrão object storage) |
+| RNF01 | Disponibilidade | 99,95% (cerca de 4 h de downtime por ano) |
+| RNF02 | Latência até o áudio começar | < 200 ms (p95) |
+| RNF03 | Consistência | Eventual em playlist e recomendação; forte em autenticação e pagamento |
+| RNF04 | Escala | Pico regional, por exemplo lançamento global |
+| RNF05 | Durabilidade do áudio | 11 noves, padrão de object storage |
 
 ## 4. Estimativas de capacidade
 
-Premissas (ordem de grandeza, estilo *back-of-the-envelope*):
+Premissas de ordem de grandeza:
 
-- **Usuários ativos mensais (MAU):** ~600 milhões
-- **Usuários ativos diários (DAU):** ~200 milhões (~33% do MAU)
-- **Faixas no catálogo:** ~100 milhões
-- **Tamanho médio de uma faixa (áudio comprimido, múltiplos bitrates):** ~15 MB (total, somando as versões 96/160/320 kbps)
-- **Armazenamento total de áudio:** 100M faixas × 15 MB ≈ **1.5 PB**
-- **Reproduções por dia:** se cada DAU ouve ~20 faixas/dia → 200M × 20 = **4 bilhões de plays/dia**
-- **Requisições de streaming por segundo (média):** 4B / 86.400s ≈ **~46.000 req/s** (pico pode ser 3-5x a média)
-- **Tráfego de rede (streaming):** considerando bitrate médio de 160kbps por sessão simultânea, com ~20M usuários ouvindo simultaneamente no pico → 20M × 160kbps ≈ **3.2 Tbps** de banda agregada (por isso CDN é obrigatório, não opcional)
-
-> Esses números servem para justificar decisões (ex: por que CDN, por que sharding, por que cache) — não são dados reais do Spotify.
+- MAU: cerca de 600 milhões
+- DAU: cerca de 200 milhões (cerca de 33% do MAU)
+- Catálogo: cerca de 100 milhões de faixas
+- Tamanho médio somando 96/160/320 kbps: cerca de 15 MB
+- Áudio total: 100 milhões × 15 MB, cerca de 1,5 PB
+- Plays por dia: 200 milhões × 20 faixas = 4 bilhões
+- Média de requests de stream: 4 bilhões / 86.400 s, cerca de 46.000 req/s. O texto assume pico de 3 a 5 vezes a média
+- Banda no pico: cerca de 20 milhões de sessões simultâneas × 160 kbps, cerca de 3,2 Tbps. Por isso o texto trata CDN como obrigatória
 
 ## 5. Arquitetura de alto nível
 
@@ -87,7 +111,7 @@ graph TD
     RecommendationService --> FeatureStore[(Feature Store)]
     RecommendationService --> MLPipeline[Pipeline de ML - Batch/Streaming]
 
-    StreamingService --> ObjectStorage[(Object Storage - Áudio Bruto)]
+    StreamingService --> ObjectStorage[(Object Storage - Áudio)]
     ObjectStorage --> CDN[CDN Global]
     CDN --> Client
 
@@ -98,11 +122,12 @@ graph TD
     AnalyticsPipeline --> DataWarehouse[(Data Warehouse)]
 ```
 
-**Decisões-chave:**
-- **API Gateway** centraliza autenticação, rate limiting e roteamento para os microsserviços.
-- Cada domínio (catálogo, playlists, busca, recomendação, streaming) é um **serviço independente**, com banco de dados próprio (padrão *database-per-service*), evitando acoplamento.
-- **Object Storage + CDN** para o áudio: o serviço de streaming nunca serve o arquivo diretamente — apenas gera URLs assinadas apontando para a CDN.
-- Um **Event Bus** (ex: Kafka) desacopla a geração de eventos de reprodução do consumo por analytics e pelo pipeline de recomendação.
+Decisões do texto:
+
+- API Gateway concentra autenticação, rate limit e roteamento.
+- Catálogo, playlist, busca, recomendação e streaming são serviços com banco próprio.
+- O serviço de streaming não entrega o arquivo. Ele devolve URL assinada da CDN. O áudio fica em object storage.
+- Um event bus (o exemplo do texto é Kafka) separa o evento de play do analytics e do treino.
 
 ## 6. Modelagem de dados
 
@@ -111,8 +136,8 @@ erDiagram
     USER ||--o{ PLAYLIST : cria
     USER ||--o{ PLAY_HISTORY : gera
     USER ||--o{ FOLLOW : segue
-    ARTIST ||--o{ ALBUM : lança
-    ALBUM ||--o{ TRACK : contém
+    ARTIST ||--o{ ALBUM : lanca
+    ALBUM ||--o{ TRACK : contem
     PLAYLIST ||--o{ PLAYLIST_TRACK : possui
     TRACK ||--o{ PLAYLIST_TRACK : referenciada_em
     TRACK ||--o{ PLAY_HISTORY : reproduzida_em
@@ -156,31 +181,28 @@ erDiagram
     }
 ```
 
-**Escolhas de banco por serviço:**
-- **Usuários / Autenticação:** relacional (PostgreSQL) — dados fortemente consistentes, transações de conta/pagamento.
-- **Catálogo (artistas, álbuns, faixas):** relacional ou NoSQL de documentos, com forte camada de cache (Redis) por ser majoritariamente leitura.
-- **Playlists:** NoSQL orientado a documentos (ex: DynamoDB/MongoDB) — estrutura flexível, alta taxa de escrita/leitura, escala horizontal fácil.
-- **Histórico de reprodução:** banco de séries temporais ou colunar (ex: Cassandra) — volume gigantesco, otimizado para escrita.
+Banco por serviço, como o texto escolhe:
+
+- Usuário e autenticação: PostgreSQL
+- Catálogo: relacional ou documento, com Redis na frente, porque a carga é leitura
+- Playlist: documento (DynamoDB ou MongoDB no texto)
+- Histórico de play: série temporal ou colunar (Cassandra no texto)
 
 ## 7. Design de API
-
-Exemplo simplificado (REST) dos endpoints principais:
 
 ```
 GET  /v1/search?q={query}&type=track,artist,album
 GET  /v1/tracks/{trackId}
-GET  /v1/tracks/{trackId}/stream-url      → retorna URL assinada da CDN
+GET  /v1/tracks/{trackId}/stream-url
 POST /v1/playlists
 POST /v1/playlists/{playlistId}/tracks
 GET  /v1/users/{userId}/recommendations
-POST /v1/playback-events                 → registra evento de reprodução (assíncrono)
+POST /v1/playback-events
 ```
 
-O endpoint de streaming **nunca retorna o áudio diretamente** — retorna uma URL temporária e assinada (ex: CloudFront Signed URL) para o player buscar o conteúdo direto da CDN.
+`stream-url` não devolve áudio. Devolve URL temporária assinada (o exemplo do texto é CloudFront Signed URL) para o player buscar na CDN.
 
 ## 8. Streaming de áudio e CDN
-
-Fluxo de reprodução de uma faixa:
 
 ```mermaid
 sequenceDiagram
@@ -191,54 +213,40 @@ sequenceDiagram
     participant S3 as Object Storage
 
     App->>GW: GET /tracks/{id}/stream-url
-    GW->>Stream: valida permissão / assinatura
-    Stream->>S3: verifica existência do arquivo
-    Stream-->>App: retorna URL assinada (expira em X min)
-    App->>CDN: solicita o arquivo de áudio via HTTP Range Requests
-    CDN->>S3: cache miss? busca na origem
-    CDN-->>App: stream do áudio em chunks (adaptativo por bitrate)
+    GW->>Stream: valida permissão
+    Stream->>S3: verifica o arquivo
+    Stream-->>App: URL assinada com expiração
+    App->>CDN: HTTP Range Requests
+    CDN->>S3: cache miss busca na origem
+    CDN-->>App: áudio em chunks
 ```
 
-- Arquivos de áudio armazenados em múltiplos bitrates (ex: 96/160/320 kbps) para adaptação de qualidade conforme a rede do usuário.
-- **HTTP Range Requests** permitem que o player baixe apenas os trechos necessários (bufferização progressiva), sem baixar a faixa inteira.
-- CDN com múltiplos PoPs (edge locations) reduz latência global e absorve a maior parte do tráfego, protegendo a origem (object storage).
+O texto guarda a faixa em mais de um bitrate (96/160/320 kbps) e usa Range Request para o player baixar só o trecho do buffer.
 
 ## 9. Sistema de recomendação
 
-- **Coleta de eventos:** cada reprodução, skip, curtida e tempo ouvido é publicado no Event Bus.
-- **Pipeline batch:** treina modelos de filtragem colaborativa (ex: matriz usuário-faixa) periodicamente, gerando embeddings de usuários e faixas.
-- **Pipeline streaming:** atualiza sinais de curto prazo (ex: "o que você ouviu nas últimas 2 horas") para recomendações mais reativas.
-- **Feature Store:** centraliza features pré-computadas (gênero preferido, artistas mais ouvidos, hora do dia típica de escuta) para servir o modelo em baixa latência.
+- Cada play, skip, curtida e tempo ouvido vai para o event bus.
+- Um pipeline batch treina filtragem colaborativa e gera embedding de usuário e faixa.
+- Um pipeline de stream atualiza o sinal curto (o exemplo do texto: o que foi ouvido nas últimas 2 horas).
+- Uma feature store guarda sinal pronto (gênero, artista, hora típica) para o modelo responder com pouca latência.
 
 ## 10. Escalabilidade e trade-offs
 
-| Decisão | Ganho | Custo/Trade-off |
+| Decisão | Ganho | Custo |
 |---|---|---|
-| Microsserviços por domínio | Times e deploys independentes, escala isolada | Complexidade operacional, latência entre serviços |
-| CDN para áudio | Baixa latência global, menos carga na origem | Custo de banda, invalidação de cache em atualizações |
-| Consistência eventual em playlists/recomendação | Alta disponibilidade e escala | Usuário pode ver estado levemente desatualizado |
-| Sharding do histórico de reprodução por usuário | Escrita distribuída, sem hotspots | Queries agregadas (ex: "top global") ficam mais caras |
-| Cache agressivo no catálogo (Redis) | Reduz carga no banco principal | Necessário invalidar cache em atualizações de metadados |
+| Microsserviço por domínio | Deploy e escala separados | Operação mais cara e latência entre serviços |
+| CDN para áudio | Menos latência e menos carga na origem | Custo de banda e invalidação de cache |
+| Consistência eventual em playlist e recomendação | Disponibilidade | Estado pode aparecer atrasado |
+| Shard do histórico por usuário | Escrita sem hotspot | Agregado global fica mais caro |
+| Cache do catálogo no Redis | Menos leitura no banco | Precisa invalidar metadado |
 
 ## 11. Stack sugerida
 
-- **Backend:** serviços em Python (FastAPI) ou Java (Spring Boot), conforme o domínio
-- **Mensageria:** Kafka ou AWS Kinesis para o Event Bus
-- **Bancos:** PostgreSQL (transacional), DynamoDB/Cassandra (alta escala de escrita), Elasticsearch (busca)
-- **Cache:** Redis
-- **Armazenamento de áudio:** S3 (ou equivalente) + CloudFront como CDN
-- **Infraestrutura:** contêineres orquestrados (Kubernetes/ECS), IaC com Terraform
-- **Observabilidade:** métricas (Prometheus/Grafana), logs centralizados, tracing distribuído (OpenTelemetry)
+A lista da seção [Stack](#stack) é esta. Não é dependência do repositório.
 
----
+## Referências
 
-## 📌 Sobre este projeto
-
-Este repositório é um exercício de **system design** — documentação de arquitetura, não uma implementação completa do produto. A ideia é demonstrar raciocínio de projeto de sistemas distribuídos: estimativas de capacidade, modelagem de dados, decisões de arquitetura e seus trade-offs.
-
-## 📚 Referências e créditos
-
-Estudei os conceitos de arquitetura de sistemas distribuídos aplicados neste case study através do canal [Renato Augusto Tech](https://www.youtube.com/@RenatoAugustoTech/videos) no YouTube, além do material disponível no GitHub de [Renato Augusto](https://github.com/RenatoAugustoFS).
+O texto original credita o canal [Renato Augusto Tech](https://www.youtube.com/@RenatoAugustoTech/videos) e o GitHub de [Renato Augusto](https://github.com/RenatoAugustoFS).
 
 ---
 
